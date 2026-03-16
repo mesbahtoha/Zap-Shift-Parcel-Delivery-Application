@@ -2326,8 +2326,14 @@ app.patch("/rider/notifications/:id/read", verifyFBToken, async (req, res) => {
 /*                                Start Server                                */
 /* -------------------------------------------------------------------------- */
 
-connectDB()
-  .then(() => {
-    app.listen(PORT);
-  })
-  .catch(() => {});
+// connectDB()
+//   .then(() => {
+//     app.listen(PORT);
+//   })
+//   .catch(() => {});
+
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(process.env.PORT || 3000, () => console.log('Server running'));
+}
