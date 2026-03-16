@@ -12,21 +12,32 @@ import {
 } from "lucide-react";
 import { getAuth } from "firebase/auth";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:3000";
+// API configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
+/**
+ * Retrieves Firebase auth token for authenticated API requests
+ * @returns {Promise<string>} Firebase ID token
+ * @throws {Error} If user is not authenticated
+ */
 const getToken = async () => {
   const auth = getAuth();
   const currentUser = auth.currentUser;
-
-  if (!currentUser) {
-    throw new Error("You must login first.");
-  }
-
+  if (!currentUser) throw new Error("You must login first.");
   return await currentUser.getIdToken();
 };
 
+/**
+ * AdminNotifications Component
+ * Displays and manages admin notifications with:
+ * - Auto-refresh (every 5 seconds + on tab focus)
+ * - Search by title/message/type
+ * - Filter by read/unread status
+ * - Mark individual/all as read
+ * - Display notification metadata
+ */
 export const AdminNotifications = () => {
+  // State management
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,30 +46,20 @@ export const AdminNotifications = () => {
   const [filterType, setFilterType] = useState("all");
   const [error, setError] = useState("");
 
+  /**
+   * Fetches notifications from API
+   * @param {boolean} showRefresh - Whether to show refresh spinner
+   */
   const fetchNotifications = useCallback(async (showRefresh = false) => {
     try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
+      showRefresh ? setRefreshing(true) : setLoading(true);
       setError("");
-
       const token = await getToken();
-
       const res = await fetch(`${API_BASE_URL}/admin/notifications`, {
-        headers: {
-          authorization: `Bearer ${token}`,
-        },
+        headers: { authorization: `Bearer ${token}` },
       });
-
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to fetch notifications");
-      }
-
+      if (!res.ok) throw new Error(data?.message || "Failed to fetch notifications");
       setNotifications(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || "Failed to fetch notifications");
@@ -69,143 +70,135 @@ export const AdminNotifications = () => {
     }
   }, []);
 
+  // Initial fetch + auto-refresh setup
   useEffect(() => {
     fetchNotifications();
 
-    // auto refresh every 5 seconds
-    const interval = setInterval(() => {
-      fetchNotifications(true);
-    }, 5000);
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => fetchNotifications(true), 5000);
 
-    // refresh when tab becomes active
+    // Refresh when browser tab becomes visible
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        fetchNotifications(true);
-      }
+      if (document.visibilityState === "visible") fetchNotifications(true);
     };
 
-    // instant refresh from other components/pages
-    const handleNotificationsRefresh = () => {
-      fetchNotifications(true);
-    };
+    // Manual refresh trigger from other components
+    const handleNotificationsRefresh = () => fetchNotifications(true);
 
+    // Event listeners setup
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener(
-      "admin-notifications-refresh",
-      handleNotificationsRefresh
-    );
+    window.addEventListener("admin-notifications-refresh", handleNotificationsRefresh);
 
+    // Cleanup on unmount
     return () => {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener(
-        "admin-notifications-refresh",
-        handleNotificationsRefresh
-      );
+      window.removeEventListener("admin-notifications-refresh", handleNotificationsRefresh);
     };
   }, [fetchNotifications]);
 
+  /**
+   * Marks a single notification as read
+   * @param {string} id - Notification ID
+   */
   const markAsRead = async (id) => {
     try {
       const token = await getToken();
-
       const res = await fetch(`${API_BASE_URL}/admin/notifications/${id}/read`, {
         method: "PATCH",
-        headers: {
-          authorization: `Bearer ${token}`,
-        },
+        headers: { authorization: `Bearer ${token}` },
       });
-
       if (!res.ok) return;
 
+      // Update local state
       setNotifications((prev) =>
-        prev.map((item) =>
-          item._id === id ? { ...item, isRead: true } : item
-        )
+        prev.map((item) => (item._id === id ? { ...item, isRead: true } : item))
       );
 
+      // Notify other components to refresh
       window.dispatchEvent(new Event("admin-overview-refresh"));
       window.dispatchEvent(new Event("admin-notifications-refresh"));
     } catch (err) {
-      console.error("Failed to mark notification as read", err);
+      // Silent fail - notification will remain unread
     }
   };
 
+  /**
+   * Marks all unread notifications as read
+   */
   const markAllAsRead = async () => {
     try {
       setMarkingAll(true);
       const unreadItems = notifications.filter((item) => !item.isRead);
+      const token = await getToken();
 
+      // Mark each notification as read via API
       await Promise.all(
-        unreadItems.map(async (item) => {
-          const token = await getToken();
-
-          await fetch(`${API_BASE_URL}/admin/notifications/${item._id}/read`, {
+        unreadItems.map((item) =>
+          fetch(`${API_BASE_URL}/admin/notifications/${item._id}/read`, {
             method: "PATCH",
-            headers: {
-              authorization: `Bearer ${token}`,
-            },
-          });
-        })
+            headers: { authorization: `Bearer ${token}` },
+          })
+        )
       );
 
-      setNotifications((prev) =>
-        prev.map((item) => ({ ...item, isRead: true }))
-      );
+      // Update local state
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
 
+      // Notify other components
       window.dispatchEvent(new Event("admin-overview-refresh"));
       window.dispatchEvent(new Event("admin-notifications-refresh"));
     } catch (err) {
-      console.error("Failed to mark all notifications as read", err);
+      // Silent fail
     } finally {
       setMarkingAll(false);
     }
   };
 
-  const unreadCount = useMemo(() => {
-    return notifications.filter((item) => !item.isRead).length;
-  }, [notifications]);
+  // Computed values using useMemo for performance
+  const unreadCount = useMemo(
+    () => notifications.filter((item) => !item.isRead).length,
+    [notifications]
+  );
 
   const filteredNotifications = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-
+    const query = searchText.trim().toLowerCase();
     return notifications.filter((item) => {
+      // Search filter: match title, message, or type
       const matchesSearch =
-        !q ||
+        !query ||
         [item.title, item.message, item.type]
           .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(q));
+          .some((val) => String(val).toLowerCase().includes(query));
 
+      // Type filter: all, unread, or read
       const matchesFilter =
-        filterType === "all"
-          ? true
-          : filterType === "unread"
-          ? !item.isRead
-          : item.isRead;
+        filterType === "all" ||
+        (filterType === "unread" ? !item.isRead : item.isRead);
 
       return matchesSearch && matchesFilter;
     });
   }, [notifications, searchText, filterType]);
 
+  /**
+   * Returns appropriate icon based on notification type
+   * @param {string} type - Notification type
+   * @returns {JSX.Element} Icon component
+   */
   const getNotificationIcon = (type) => {
     const t = String(type || "").toLowerCase();
-
-    if (t.includes("parcel") || t.includes("order")) {
+    if (t.includes("parcel") || t.includes("order"))
       return <Package size={18} className="text-blue-600 dark:text-blue-300" />;
-    }
-    if (t.includes("rider")) {
+    if (t.includes("rider"))
       return <Truck size={18} className="text-emerald-600 dark:text-emerald-300" />;
-    }
-    if (t.includes("cash") || t.includes("payment")) {
+    if (t.includes("cash") || t.includes("payment"))
       return <Wallet size={18} className="text-amber-600 dark:text-amber-300" />;
-    }
-    if (t.includes("approval")) {
+    if (t.includes("approval"))
       return <UserCheck size={18} className="text-purple-600 dark:text-purple-300" />;
-    }
-
     return <Bell size={18} className="text-slate-600 dark:text-slate-300" />;
   };
 
+  // Loading state
   if (loading) {
     return (
       <div className="p-10 text-center text-slate-500 dark:text-slate-400">
@@ -216,12 +209,12 @@ export const AdminNotifications = () => {
 
   return (
     <div className="space-y-5">
+      {/* Header Section */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-blue-100 p-3 dark:bg-blue-900/30">
             <Bell className="text-blue-600 dark:text-blue-300" size={22} />
           </div>
-
           <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 md:text-2xl">
               Notifications
@@ -232,6 +225,7 @@ export const AdminNotifications = () => {
           </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex flex-wrap gap-2">
           <button
             onClick={markAllAsRead}
@@ -253,21 +247,21 @@ export const AdminNotifications = () => {
         </div>
       </div>
 
+      {/* Error Display */}
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
           {error}
         </div>
       )}
 
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <SummaryCard label="Total Notifications" value={notifications.length} />
         <SummaryCard label="Unread" value={unreadCount} highlight />
-        <SummaryCard
-          label="Read"
-          value={notifications.length - unreadCount}
-        />
+        <SummaryCard label="Read" value={notifications.length - unreadCount} />
       </div>
 
+      {/* Search and Filter */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
           <div className="relative">
@@ -299,6 +293,7 @@ export const AdminNotifications = () => {
         </div>
       </div>
 
+      {/* Notification List */}
       <div className="space-y-3">
         {filteredNotifications.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
@@ -329,7 +324,6 @@ export const AdminNotifications = () => {
                       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                         {item.message || "No message"}
                       </p>
-
                       {item.type && (
                         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                           {item.type}
@@ -343,63 +337,39 @@ export const AdminNotifications = () => {
                           New
                         </span>
                       )}
-
                       <p className="text-xs text-slate-400 dark:text-slate-500">
-                        {item.createdAt
-                          ? new Date(item.createdAt).toLocaleString()
-                          : ""}
+                        {item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}
                       </p>
                     </div>
                   </div>
 
+                  {/* Metadata Display */}
                   {item.meta && Object.keys(item.meta).length > 0 && (
                     <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Details
                       </p>
-
                       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                         {item.meta.trackingId && (
-                          <SmallMeta
-                            label="Tracking ID"
-                            value={item.meta.trackingId}
-                          />
+                          <SmallMeta label="Tracking ID" value={item.meta.trackingId} />
                         )}
                         {item.meta.riderEmail && (
-                          <SmallMeta
-                            label="Rider Email"
-                            value={item.meta.riderEmail}
-                          />
+                          <SmallMeta label="Rider Email" value={item.meta.riderEmail} />
                         )}
                         {item.meta.riderName && (
-                          <SmallMeta
-                            label="Rider Name"
-                            value={item.meta.riderName}
-                          />
+                          <SmallMeta label="Rider Name" value={item.meta.riderName} />
                         )}
                         {item.meta.transactionId && (
-                          <SmallMeta
-                            label="Transaction ID"
-                            value={item.meta.transactionId}
-                          />
+                          <SmallMeta label="Transaction ID" value={item.meta.transactionId} />
                         )}
                         {item.meta.amountTaka !== undefined && (
-                          <SmallMeta
-                            label="Amount"
-                            value={`৳ ${item.meta.amountTaka}`}
-                          />
+                          <SmallMeta label="Amount" value={`৳ ${item.meta.amountTaka}`} />
                         )}
                         {item.meta.status && (
-                          <SmallMeta
-                            label="Status"
-                            value={item.meta.status}
-                          />
+                          <SmallMeta label="Status" value={item.meta.status} />
                         )}
                         {item.meta.totalPaidNow !== undefined && (
-                          <SmallMeta
-                            label="Paid Now"
-                            value={`৳ ${item.meta.totalPaidNow}`}
-                          />
+                          <SmallMeta label="Paid Now" value={`৳ ${item.meta.totalPaidNow}`} />
                         )}
                       </div>
                     </div>
@@ -414,6 +384,12 @@ export const AdminNotifications = () => {
   );
 };
 
+/**
+ * Summary Card Component - Displays notification statistics
+ * @param {string} label - Card label
+ * @param {number} value - Numeric value
+ * @param {boolean} highlight - Whether to highlight (blue) the card
+ */
 const SummaryCard = ({ label, value, highlight = false }) => (
   <div
     className={`rounded-2xl border p-4 shadow-sm ${
@@ -429,11 +405,14 @@ const SummaryCard = ({ label, value, highlight = false }) => (
   </div>
 );
 
+/**
+ * Small Meta Component - Displays key-value pairs in notification details
+ * @param {string} label - Field label
+ * @param {string} value - Field value
+ */
 const SmallMeta = ({ label, value }) => (
   <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
     <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-      {value}
-    </p>
+    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{value}</p>
   </div>
 );
