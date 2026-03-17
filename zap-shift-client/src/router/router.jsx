@@ -6,7 +6,7 @@ import { Register } from "../pages/Authentication/Register/Register";
 import Coverage from "../coverage/Coverage";
 import PrivateRoute from "../routes/PrivateRoute";
 import PublicRoute from "../routes/PublicRoute";
-import SendParcel from "../pages/SendParcel/SEndParcel";
+import SendParcel from "../pages/SendParcel/SendParcel";
 import BeARider from "../pages/BeARider/BeARider";
 import Profile from "../pages/shared/Navbar/Profile";
 import DashboardLayout from "../layouts/DashboardLayout";
